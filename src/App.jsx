@@ -1,50 +1,13 @@
 import { useState, useRef } from 'react';
-import Tesseract from 'tesseract.js';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import './App.css';
-
-// A fallback dictionary for common English phrases to translate to Thai.
-// If Tesseract reads something not on this list, it will just use the text it read!
-const thaiTranslations = {
-  "Merry Christmas": "สุขสันต์วันคริสต์มาส",
-  "Happy Songkran": "สุขสันต์วันสงกรานต์",
-  "555 laugh": "หัวเราะ_555",
-  "Thank you": "ขอบคุณ",
-  "Great job": "ทำได้ดีมาก",
-  "Happy Birthday": "สุขสันต์วันเกิด",
-  "OK": "ตกลง",
-  "You Got It": "ได้เลย",
-  "Lets do it": "ลุยเลย",
-  "Roger that": "รับทราบ",
-  "Understood": "เข้าใจแล้ว",
-  "Excellent": "ยอดเยี่ยม",
-  "Ha ha ha": "ฮ่าฮ่าฮ่า",
-  "Oh no": "โอ้ไม่นะ",
-  "Awesome": "สุดยอด",
-  "I love it": "ฉันชอบมัน",
-  "Hold on": "เดี๋ยวก่อน",
-  "Let me think": "ขอคิดดูก่อน",
-  "I really like it": "ฉันชอบมันมาก",
-  "Take a break": "พักผ่อนบ้างนะ",
-  "Lets go": "ไปกันเถอะ",
-  "Keep it up": "พยายามต่อไปนะ",
-  "Happy New Year": "สวัสดีปีใหม่",
-  "Happy Chinese New Year": "สุขสันต์วันตรุษจีน",
-  "Happy Valentines Day": "สุขสันต์วันวาเลนไทน์",
-  "Happy Mothers Day": "สุขสันต์วันแม่",
-  "Happy Fathers Day": "สุขสันต์วันพ่อ",
-  "Congrats Graduate": "ขอแสดงความยินดีกับบัณฑิต",
-  "Well done": "ทำได้ดีมาก",
-  "You can do it": "คุณทำได้"
-};
 
 function App() {
   const [imageSrc, setImageSrc] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState('');
   
-  // New State variables for dynamic rows and columns!
   const [cols, setCols] = useState(6);
   const [rows, setRows] = useState(5);
   
@@ -103,37 +66,6 @@ function App() {
     return trimmedCanvas;
   };
 
-  const getStickerText = async (canvas) => {
-    try {
-      // Look for both English and Thai characters
-      const result = await Tesseract.recognize(canvas, 'eng+tha');
-      
-      // Keep English letters, numbers, spaces, and Thai characters
-      let rawText = result.data.text.replace(/[^a-zA-Z0-9\s\u0E00-\u0E7F]/g, '').trim();
-      let finalName = rawText; 
-
-      // Check if it matches our dictionary of known English phrases
-      for (const [englishPhrase, thaiPhrase] of Object.entries(thaiTranslations)) {
-        if (rawText.toLowerCase().includes(englishPhrase.toLowerCase().replace(/[^a-z0-9\s]/g, ''))) {
-          finalName = thaiPhrase;
-          break;
-        }
-      }
-
-      // Final filename cleanup (replace spaces with underscores)
-      let safeText = finalName.replace(/\s+/g, '_');
-      
-      // Keep names from getting absurdly long
-      if (safeText.length > 30) safeText = safeText.substring(0, 30); 
-      
-      // If Tesseract completely fails to read anything, default to 'sticker'
-      return safeText ? safeText : "sticker";
-    } catch (error) {
-      console.error("OCR Failed", error);
-      return "sticker";
-    }
-  };
-
   const getTimestamp = () => {
     const now = new Date();
     const year = now.getFullYear();
@@ -148,10 +80,13 @@ function App() {
     if (!imgRef.current) return;
     
     setIsProcessing(true);
-    setProgress('Upscaling image...');
+    setProgress('Upscaling and slicing image...');
     
     const zip = new JSZip();
     const img = imgRef.current;
+    
+    // Generate one timestamp to use for both the ZIP and the internal files
+    const timestamp = getTimestamp();
 
     const masterCanvas = document.createElement('canvas');
     masterCanvas.width = img.naturalWidth * MASTER_SCALE;
@@ -162,7 +97,6 @@ function App() {
     masterCtx.imageSmoothingQuality = 'high';
     masterCtx.drawImage(img, 0, 0, masterCanvas.width, masterCanvas.height);
     
-    // Calculate cells based on the dynamic rows and columns
     const cellWidth = masterCanvas.width / cols;
     const cellHeight = masterCanvas.height / rows;
     
@@ -172,7 +106,7 @@ function App() {
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         processedCount++;
-        setProgress(`Scanning sticker ${processedCount} of ${totalStickers}...`);
+        setProgress(`Slicing sticker ${processedCount} of ${totalStickers}...`);
 
         const sliceCanvas = document.createElement('canvas');
         sliceCanvas.width = cellWidth;
@@ -188,11 +122,11 @@ function App() {
         const croppedCanvas = trimCanvasEdges(sliceCanvas);
         
         if (croppedCanvas) {
-          const stickerText = await getStickerText(croppedCanvas);
-          
           const rowNum = String(r + 1).padStart(2, '0');
           const colNum = String(c + 1).padStart(2, '0');
-          const fileName = `r${rowNum}_c${colNum}_${stickerText}.png`;
+          
+          // New simplified filename format
+          const fileName = `r${rowNum}_c${colNum}_${timestamp}.png`;
           
           const blob = await new Promise(resolve => croppedCanvas.toBlob(resolve, 'image/png'));
           zip.file(fileName, blob);
@@ -202,7 +136,7 @@ function App() {
 
     setProgress('Zipping files...');
     const content = await zip.generateAsync({ type: "blob" });
-    saveAs(content, `Stickers_${getTimestamp()}.zip`);
+    saveAs(content, `Stickers_${timestamp}.zip`);
     
     setIsProcessing(false);
     setProgress('');
@@ -262,8 +196,7 @@ function App() {
           
           {isProcessing && (
             <p style={{ marginTop: '15px', fontWeight: 'bold', color: '#0056b3' }}>
-              {progress} <br/>
-              <small>(OCR is analyzing the text... this will take a moment!)</small>
+              {progress}
             </p>
           )}
         </div>
