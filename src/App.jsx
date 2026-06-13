@@ -1,14 +1,24 @@
 import { useState, useRef } from 'react';
+import Tesseract from 'tesseract.js';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import './App.css';
+import './App.css'; 
 
 function App() {
   const [imageSrc, setImageSrc] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState('');
   const imgRef = useRef(null);
 
-  // Handle file upload
+  // Grid configuration
+  const COLUMNS = 6;
+  const ROWS = 5;
+  
+  // This multiplies the resolution of the entire image before slicing.
+  // A scale of 3 means a 1000x1000 image becomes 3000x3000. 
+  // Increase this number if you need even more pixels!
+  const MASTER_SCALE = 3; 
+
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -18,103 +28,181 @@ function App() {
     }
   };
 
-  // The Slicing Engine
-  const processImage = async () => {
-    if (!imgRef.current) return;
-    setIsProcessing(true);
+  const trimCanvasEdges = (sourceCanvas) => {
+    const ctx = sourceCanvas.getContext('2d');
+    const imgData = ctx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+    const data = imgData.data;
 
-    const img = imgRef.current;
-    const zip = new JSZip();
-    
-    const rows = 5;
-    const cols = 6;
-    const cellWidth = img.naturalWidth / cols;
-    const cellHeight = img.naturalHeight / rows;
+    let minX = sourceCanvas.width, minY = sourceCanvas.height, maxX = 0, maxY = 0;
+    let hasPixels = false;
 
-    // Create a temporary canvas for cropping
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
+    for (let y = 0; y < sourceCanvas.height; y++) {
+      for (let x = 0; x < sourceCanvas.width; x++) {
+        const index = (y * sourceCanvas.width + x) * 4;
+        const alpha = data[index + 3];
+        // Treat near-white pixels as transparent for trimming purposes
+        const isWhite = data[index] > 240 && data[index + 1] > 240 && data[index + 2] > 240;
 
-    let processedCount = 0;
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        // Base grid coordinates
-        let left = c * cellWidth;
-        let top = r * cellHeight;
-        let right = (c + 1) * cellWidth;
-        let bottom = (r + 1) * cellHeight;
-
-        // Apply our refined asymmetric padding
-        left += 5;
-        right -= 5;
-        top += 25;
-        bottom -= 15;
-
-        // Ensure boundaries don't break
-        left = Math.max(0, left);
-        top = Math.max(0, top);
-        right = Math.min(img.naturalWidth, right);
-        bottom = Math.min(img.naturalHeight, bottom);
-
-        const cropWidth = right - left;
-        const cropHeight = bottom - top;
-
-        canvas.width = cropWidth;
-        canvas.height = cropHeight;
-
-        // Draw the specific cropped area to the canvas
-        ctx.clearRect(0, 0, cropWidth, cropHeight);
-        ctx.drawImage(
-          img,
-          left, top, cropWidth, cropHeight, // Source coordinates
-          0, 0, cropWidth, cropHeight       // Destination coordinates
-        );
-
-        // Convert canvas to blob and add to zip
-        await new Promise((resolve) => {
-          canvas.toBlob((blob) => {
-            if (blob) {
-              zip.file(`sticker_row${r + 1}_col${c + 1}.png`, blob);
-            }
-            resolve();
-          }, 'image/png');
-        });
-        
-        processedCount++;
+        if (alpha > 10 && !isWhite) {
+          hasPixels = true;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
       }
     }
 
-    // Generate and download the zip
-    const content = await zip.generateAsync({ type: 'blob' });
-    saveAs(content, 'stickers_collection.zip');
+    if (!hasPixels) return null;
+
+    // Scale the padding so it remains proportional to the larger image
+    const padding = 10 * MASTER_SCALE; 
+    const width = (maxX - minX) + (padding * 2);
+    const height = (maxY - minY) + (padding * 2);
+
+    const trimmedCanvas = document.createElement('canvas');
+    trimmedCanvas.width = width;
+    trimmedCanvas.height = height;
+    const trimmedCtx = trimmedCanvas.getContext('2d');
+    
+    trimmedCtx.drawImage(
+      sourceCanvas, 
+      minX - padding, minY - padding, width, height, 
+      0, 0, width, height
+    );
+    return trimmedCanvas;
+  };
+
+  const getStickerText = async (canvas) => {
+    try {
+      const result = await Tesseract.recognize(canvas, 'eng');
+      let safeText = result.data.text
+        .replace(/[^a-zA-Z0-9\s]/g, '') 
+        .trim()
+        .replace(/\s+/g, '_'); 
+      
+      if (safeText.length > 20) safeText = safeText.substring(0, 20); 
+      
+      return safeText ? safeText : "sticker";
+    } catch (error) {
+      console.error("OCR Failed", error);
+      return "sticker";
+    }
+  };
+
+  const getTimestamp = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}_${hours}${minutes}`;
+  };
+
+  const processStickers = async () => {
+    if (!imgRef.current) return;
+    
+    setIsProcessing(true);
+    setProgress('Upscaling image...');
+    
+    const zip = new JSZip();
+    const img = imgRef.current;
+
+    // 1. Create a massive master canvas to increase the initial pixels
+    const masterCanvas = document.createElement('canvas');
+    masterCanvas.width = img.naturalWidth * MASTER_SCALE;
+    masterCanvas.height = img.naturalHeight * MASTER_SCALE;
+    
+    const masterCtx = masterCanvas.getContext('2d');
+    // Turn on high-quality smoothing so the upscale looks nice
+    masterCtx.imageSmoothingEnabled = true;
+    masterCtx.imageSmoothingQuality = 'high';
+    masterCtx.drawImage(img, 0, 0, masterCanvas.width, masterCanvas.height);
+    
+    // Calculate cells based on the new massive canvas
+    const cellWidth = masterCanvas.width / COLUMNS;
+    const cellHeight = masterCanvas.height / ROWS;
+    
+    let processedCount = 0;
+    const totalStickers = ROWS * COLUMNS;
+
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLUMNS; c++) {
+        processedCount++;
+        setProgress(`Processing sticker ${processedCount} of ${totalStickers}...`);
+
+        // 2. Get the rough slice from the upscaled master canvas
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = cellWidth;
+        sliceCanvas.height = cellHeight;
+        const sliceCtx = sliceCanvas.getContext('2d');
+        
+        sliceCtx.drawImage(
+          masterCanvas,
+          c * cellWidth, r * cellHeight, cellWidth, cellHeight,
+          0, 0, cellWidth, cellHeight
+        );
+
+        // 3. Auto-crop the edges
+        const croppedCanvas = trimCanvasEdges(sliceCanvas);
+        
+        if (croppedCanvas) {
+          // 4. Read text
+          const stickerText = await getStickerText(croppedCanvas);
+          
+          // 5. Build filename
+          const rowNum = String(r + 1).padStart(2, '0');
+          const colNum = String(c + 1).padStart(2, '0');
+          const fileName = `r${rowNum}_c${colNum}_${stickerText}.png`;
+          
+          // 6. Add to ZIP
+          const blob = await new Promise(resolve => croppedCanvas.toBlob(resolve, 'image/png'));
+          zip.file(fileName, blob);
+        }
+      }
+    }
+
+    setProgress('Zipping files...');
+    const content = await zip.generateAsync({ type: "blob" });
+    saveAs(content, `Stickers_${getTimestamp()}.zip`);
+    
     setIsProcessing(false);
+    setProgress('');
   };
 
   return (
-    <div className="App">
+    <div className="App" style={{ textAlign: 'center', padding: '20px' }}>
       <h1>Sticker Slicer PWA</h1>
       
-      <div className="upload-section">
+      <div style={{ marginBottom: '20px' }}>
         <input type="file" accept="image/png, image/jpeg" onChange={handleImageUpload} />
       </div>
 
       {imageSrc && (
-        <div className="preview-section">
+        <div>
           <img 
             ref={imgRef} 
             src={imageSrc} 
             alt="Upload preview" 
-            style={{ maxWidth: '100%', marginTop: '20px', borderRadius: '8px' }} 
+            style={{ maxWidth: '100%', height: 'auto', marginBottom: '20px' }} 
           />
           <br />
+          
           <button 
-            onClick={processImage} 
+            onClick={processStickers} 
             disabled={isProcessing}
-            style={{ marginTop: '20px', padding: '10px 20px', fontSize: '16px' }}
+            style={{ padding: '10px 20px', fontSize: '16px' }}
           >
-            {isProcessing ? 'Slicing & Zipping...' : 'Download Sliced Stickers'}
+            {isProcessing ? 'Processing...' : 'Download Sliced Stickers'}
           </button>
+          
+          {isProcessing && (
+            <p style={{ marginTop: '15px', fontWeight: 'bold', color: '#0056b3' }}>
+              {progress} <br/>
+              <small>(Reading text via OCR takes a moment!)</small>
+            </p>
+          )}
         </div>
       )}
     </div>
