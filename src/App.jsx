@@ -73,15 +73,20 @@ function App() {
     return trimmedCanvas;
   };
 
-  const getStickerText = async (canvas) => {
+const getStickerText = async (canvas) => {
     try {
-      const result = await Tesseract.recognize(canvas, 'eng');
+      // 1. Tell Tesseract to look for English AND Thai characters
+      const result = await Tesseract.recognize(canvas, 'eng+tha');
+      
+      // 2. Clean up the text for the filename
       let safeText = result.data.text
-        .replace(/[^a-zA-Z0-9\s]/g, '') 
+        // Keep English letters, numbers, spaces, AND the Thai Unicode block (\u0E00-\u0E7F)
+        .replace(/[^a-zA-Z0-9\s\u0E00-\u0E7F]/g, '') 
         .trim()
         .replace(/\s+/g, '_'); 
       
-      if (safeText.length > 20) safeText = safeText.substring(0, 20); 
+      // Keep filenames from getting absurdly long
+      if (safeText.length > 30) safeText = safeText.substring(0, 30); 
       
       return safeText ? safeText : "sticker";
     } catch (error) {
