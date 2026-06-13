@@ -2,7 +2,42 @@ import { useState, useRef } from 'react';
 import Tesseract from 'tesseract.js';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import './App.css'; 
+import './App.css';
+
+// 1. The Translation Dictionary
+// The app will look for these English phrases and swap them for the Thai filenames!
+const thaiTranslations = {
+  "Merry Christmas": "สุขสันต์วันคริสต์มาส",
+  "Happy Songkran": "สุขสันต์วันสงกรานต์",
+  "555 laugh": "หัวเราะ_555",
+  "Thank you": "ขอบคุณ",
+  "Great job": "ทำได้ดีมาก",
+  "Happy Birthday": "สุขสันต์วันเกิด",
+  "OK": "ตกลง",
+  "You Got It": "ได้เลย",
+  "Lets do it": "ลุยเลย",
+  "Roger that": "รับทราบ",
+  "Understood": "เข้าใจแล้ว",
+  "Excellent": "ยอดเยี่ยม",
+  "Ha ha ha": "ฮ่าฮ่าฮ่า",
+  "Oh no": "โอ้ไม่นะ",
+  "Awesome": "สุดยอด",
+  "I love it": "ฉันชอบมัน",
+  "Hold on": "เดี๋ยวก่อน",
+  "Let me think": "ขอคิดดูก่อน",
+  "I really like it": "ฉันชอบมันมาก",
+  "Take a break": "พักผ่อนบ้างนะ",
+  "Lets go": "ไปกันเถอะ",
+  "Keep it up": "พยายามต่อไปนะ",
+  "Happy New Year": "สวัสดีปีใหม่",
+  "Happy Chinese New Year": "สุขสันต์วันตรุษจีน",
+  "Happy Valentines Day": "สุขสันต์วันวาเลนไทน์",
+  "Happy Mothers Day": "สุขสันต์วันแม่",
+  "Happy Fathers Day": "สุขสันต์วันพ่อ",
+  "Congrats Graduate": "ขอแสดงความยินดีกับบัณฑิต",
+  "Well done": "ทำได้ดีมาก",
+  "You can do it": "คุณทำได้"
+};
 
 function App() {
   const [imageSrc, setImageSrc] = useState(null);
@@ -13,11 +48,7 @@ function App() {
   // Grid configuration
   const COLUMNS = 6;
   const ROWS = 5;
-  
-  // This multiplies the resolution of the entire image before slicing.
-  // A scale of 3 means a 1000x1000 image becomes 3000x3000. 
-  // Increase this number if you need even more pixels!
-  const MASTER_SCALE = 3; 
+  const MASTER_SCALE = 3; // Increases resolution
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -40,7 +71,6 @@ function App() {
       for (let x = 0; x < sourceCanvas.width; x++) {
         const index = (y * sourceCanvas.width + x) * 4;
         const alpha = data[index + 3];
-        // Treat near-white pixels as transparent for trimming purposes
         const isWhite = data[index] > 240 && data[index + 1] > 240 && data[index + 2] > 240;
 
         if (alpha > 10 && !isWhite) {
@@ -55,8 +85,7 @@ function App() {
 
     if (!hasPixels) return null;
 
-    // Scale the padding so it remains proportional to the larger image
-    const padding = 10 * MASTER_SCALE; 
+    const padding = 10 * MASTER_SCALE;
     const width = (maxX - minX) + (padding * 2);
     const height = (maxY - minY) + (padding * 2);
 
@@ -73,19 +102,26 @@ function App() {
     return trimmedCanvas;
   };
 
-const getStickerText = async (canvas) => {
+  const getStickerText = async (canvas) => {
     try {
-      // 1. Tell Tesseract to look for English AND Thai characters
-      const result = await Tesseract.recognize(canvas, 'eng+tha');
+      // 1. Read the text from the sticker
+      const result = await Tesseract.recognize(canvas, 'eng');
       
-      // 2. Clean up the text for the filename
-      let safeText = result.data.text
-        // Keep English letters, numbers, spaces, AND the Thai Unicode block (\u0E00-\u0E7F)
-        .replace(/[^a-zA-Z0-9\s\u0E00-\u0E7F]/g, '') 
-        .trim()
-        .replace(/\s+/g, '_'); 
+      // 2. Clean it up just enough to check our dictionary
+      let rawText = result.data.text.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+      let finalName = rawText; 
+
+      // 3. Search the dictionary for a match (case-insensitive)
+      for (const [englishPhrase, thaiPhrase] of Object.entries(thaiTranslations)) {
+        if (rawText.toLowerCase().includes(englishPhrase.toLowerCase().replace(/[^a-z0-9\s]/g, ''))) {
+          finalName = thaiPhrase; // Swap to Thai!
+          break;
+        }
+      }
+
+      // 4. Final cleanup for the file name (allows English, Numbers, and Thai characters)
+      let safeText = finalName.replace(/[^a-zA-Z0-9\u0E00-\u0E7F]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
       
-      // Keep filenames from getting absurdly long
       if (safeText.length > 30) safeText = safeText.substring(0, 30); 
       
       return safeText ? safeText : "sticker";
@@ -114,18 +150,15 @@ const getStickerText = async (canvas) => {
     const zip = new JSZip();
     const img = imgRef.current;
 
-    // 1. Create a massive master canvas to increase the initial pixels
     const masterCanvas = document.createElement('canvas');
     masterCanvas.width = img.naturalWidth * MASTER_SCALE;
     masterCanvas.height = img.naturalHeight * MASTER_SCALE;
     
     const masterCtx = masterCanvas.getContext('2d');
-    // Turn on high-quality smoothing so the upscale looks nice
     masterCtx.imageSmoothingEnabled = true;
     masterCtx.imageSmoothingQuality = 'high';
     masterCtx.drawImage(img, 0, 0, masterCanvas.width, masterCanvas.height);
     
-    // Calculate cells based on the new massive canvas
     const cellWidth = masterCanvas.width / COLUMNS;
     const cellHeight = masterCanvas.height / ROWS;
     
@@ -137,7 +170,6 @@ const getStickerText = async (canvas) => {
         processedCount++;
         setProgress(`Processing sticker ${processedCount} of ${totalStickers}...`);
 
-        // 2. Get the rough slice from the upscaled master canvas
         const sliceCanvas = document.createElement('canvas');
         sliceCanvas.width = cellWidth;
         sliceCanvas.height = cellHeight;
@@ -149,19 +181,15 @@ const getStickerText = async (canvas) => {
           0, 0, cellWidth, cellHeight
         );
 
-        // 3. Auto-crop the edges
         const croppedCanvas = trimCanvasEdges(sliceCanvas);
         
         if (croppedCanvas) {
-          // 4. Read text
           const stickerText = await getStickerText(croppedCanvas);
           
-          // 5. Build filename
           const rowNum = String(r + 1).padStart(2, '0');
           const colNum = String(c + 1).padStart(2, '0');
           const fileName = `r${rowNum}_c${colNum}_${stickerText}.png`;
           
-          // 6. Add to ZIP
           const blob = await new Promise(resolve => croppedCanvas.toBlob(resolve, 'image/png'));
           zip.file(fileName, blob);
         }
