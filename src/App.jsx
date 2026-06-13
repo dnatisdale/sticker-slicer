@@ -4,8 +4,8 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import './App.css';
 
-// 1. The Translation Dictionary
-// The app will look for these English phrases and swap them for the Thai filenames!
+// A fallback dictionary for common English phrases to translate to Thai.
+// If Tesseract reads something not on this list, it will just use the text it read!
 const thaiTranslations = {
   "Merry Christmas": "สุขสันต์วันคริสต์มาส",
   "Happy Songkran": "สุขสันต์วันสงกรานต์",
@@ -43,12 +43,13 @@ function App() {
   const [imageSrc, setImageSrc] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState('');
+  
+  // New State variables for dynamic rows and columns!
+  const [cols, setCols] = useState(6);
+  const [rows, setRows] = useState(5);
+  
   const imgRef = useRef(null);
-
-  // Grid configuration
-  const COLUMNS = 6;
-  const ROWS = 5;
-  const MASTER_SCALE = 3; // Increases resolution
+  const MASTER_SCALE = 3; 
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -104,26 +105,28 @@ function App() {
 
   const getStickerText = async (canvas) => {
     try {
-      // 1. Read the text from the sticker
-      const result = await Tesseract.recognize(canvas, 'eng');
+      // Look for both English and Thai characters
+      const result = await Tesseract.recognize(canvas, 'eng+tha');
       
-      // 2. Clean it up just enough to check our dictionary
-      let rawText = result.data.text.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+      // Keep English letters, numbers, spaces, and Thai characters
+      let rawText = result.data.text.replace(/[^a-zA-Z0-9\s\u0E00-\u0E7F]/g, '').trim();
       let finalName = rawText; 
 
-      // 3. Search the dictionary for a match (case-insensitive)
+      // Check if it matches our dictionary of known English phrases
       for (const [englishPhrase, thaiPhrase] of Object.entries(thaiTranslations)) {
         if (rawText.toLowerCase().includes(englishPhrase.toLowerCase().replace(/[^a-z0-9\s]/g, ''))) {
-          finalName = thaiPhrase; // Swap to Thai!
+          finalName = thaiPhrase;
           break;
         }
       }
 
-      // 4. Final cleanup for the file name (allows English, Numbers, and Thai characters)
-      let safeText = finalName.replace(/[^a-zA-Z0-9\u0E00-\u0E7F]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+      // Final filename cleanup (replace spaces with underscores)
+      let safeText = finalName.replace(/\s+/g, '_');
       
+      // Keep names from getting absurdly long
       if (safeText.length > 30) safeText = safeText.substring(0, 30); 
       
+      // If Tesseract completely fails to read anything, default to 'sticker'
       return safeText ? safeText : "sticker";
     } catch (error) {
       console.error("OCR Failed", error);
@@ -159,16 +162,17 @@ function App() {
     masterCtx.imageSmoothingQuality = 'high';
     masterCtx.drawImage(img, 0, 0, masterCanvas.width, masterCanvas.height);
     
-    const cellWidth = masterCanvas.width / COLUMNS;
-    const cellHeight = masterCanvas.height / ROWS;
+    // Calculate cells based on the dynamic rows and columns
+    const cellWidth = masterCanvas.width / cols;
+    const cellHeight = masterCanvas.height / rows;
     
     let processedCount = 0;
-    const totalStickers = ROWS * COLUMNS;
+    const totalStickers = rows * cols;
 
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLUMNS; c++) {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
         processedCount++;
-        setProgress(`Processing sticker ${processedCount} of ${totalStickers}...`);
+        setProgress(`Scanning sticker ${processedCount} of ${totalStickers}...`);
 
         const sliceCanvas = document.createElement('canvas');
         sliceCanvas.width = cellWidth;
@@ -205,11 +209,29 @@ function App() {
   };
 
   return (
-    <div className="App" style={{ textAlign: 'center', padding: '20px' }}>
+    <div className="App" style={{ textAlign: 'center', padding: '20px', fontFamily: 'sans-serif' }}>
       <h1>Sticker Slicer PWA</h1>
       
-      <div style={{ marginBottom: '20px' }}>
-        <input type="file" accept="image/png, image/jpeg" onChange={handleImageUpload} />
+      <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f0f0f0', borderRadius: '8px', display: 'inline-block' }}>
+        <div style={{ marginBottom: '10px' }}>
+          <label style={{ marginRight: '10px', fontWeight: 'bold' }}>Grid Columns:</label>
+          <input 
+            type="number" 
+            value={cols} 
+            onChange={(e) => setCols(Math.max(1, parseInt(e.target.value) || 1))} 
+            style={{ width: '60px', padding: '5px' }}
+          />
+          
+          <label style={{ marginLeft: '20px', marginRight: '10px', fontWeight: 'bold' }}>Grid Rows:</label>
+          <input 
+            type="number" 
+            value={rows} 
+            onChange={(e) => setRows(Math.max(1, parseInt(e.target.value) || 1))} 
+            style={{ width: '60px', padding: '5px' }}
+          />
+        </div>
+        
+        <input type="file" accept="image/png, image/jpeg" onChange={handleImageUpload} style={{ marginTop: '10px' }} />
       </div>
 
       {imageSrc && (
@@ -218,14 +240,22 @@ function App() {
             ref={imgRef} 
             src={imageSrc} 
             alt="Upload preview" 
-            style={{ maxWidth: '100%', height: 'auto', marginBottom: '20px' }} 
+            style={{ maxWidth: '100%', height: 'auto', marginBottom: '20px', border: '1px solid #ccc' }} 
           />
           <br />
           
           <button 
             onClick={processStickers} 
             disabled={isProcessing}
-            style={{ padding: '10px 20px', fontSize: '16px' }}
+            style={{ 
+              padding: '12px 24px', 
+              fontSize: '16px', 
+              backgroundColor: isProcessing ? '#cccccc' : '#007bff', 
+              color: 'white', 
+              border: 'none', 
+              borderRadius: '4px',
+              cursor: isProcessing ? 'not-allowed' : 'pointer'
+            }}
           >
             {isProcessing ? 'Processing...' : 'Download Sliced Stickers'}
           </button>
@@ -233,7 +263,7 @@ function App() {
           {isProcessing && (
             <p style={{ marginTop: '15px', fontWeight: 'bold', color: '#0056b3' }}>
               {progress} <br/>
-              <small>(Reading text via OCR takes a moment!)</small>
+              <small>(OCR is analyzing the text... this will take a moment!)</small>
             </p>
           )}
         </div>
