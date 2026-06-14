@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import './App.css';
@@ -12,15 +12,32 @@ function App() {
   const [cols, setCols] = useState(6);
   const [rows, setRows] = useState(5);
   
-  // Visual Preview Controls (Percentages)
+  // Arrays holding the percentage positions (0-100) of each individual cut line
+  const [vLines, setVLines] = useState([]);
+  const [hLines, setHLines] = useState([]);
+  
   const [zoom, setZoom] = useState(1);
-  const [offsetX, setOffsetX] = useState(0);
-  const [offsetY, setOffsetY] = useState(0);
-  const [gridWidth, setGridWidth] = useState(100);
-  const [gridHeight, setGridHeight] = useState(100);
   
   const imgRef = useRef(null);
   const MASTER_SCALE = 3; 
+
+  // Whenever columns change, reset the vertical lines to be evenly spaced
+  useEffect(() => {
+    const newV = [];
+    for(let i = 0; i <= cols; i++) {
+      newV.push((i / cols) * 100);
+    }
+    setVLines(newV);
+  }, [cols]);
+
+  // Whenever rows change, reset the horizontal lines to be evenly spaced
+  useEffect(() => {
+    const newH = [];
+    for(let i = 0; i <= rows; i++) {
+      newH.push((i / rows) * 100);
+    }
+    setHLines(newH);
+  }, [rows]);
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -28,14 +45,20 @@ function App() {
       const reader = new FileReader();
       reader.onload = (event) => setImageSrc(event.target.result);
       reader.readAsDataURL(file);
-      
-      // Reset grid adjustments when a new image is uploaded
-      setOffsetX(0);
-      setOffsetY(0);
-      setGridWidth(100);
-      setGridHeight(100);
       setZoom(1);
     }
+  };
+
+  const handleVLineChange = (index, value) => {
+    const updated = [...vLines];
+    updated[index] = parseFloat(value) || 0;
+    setVLines(updated);
+  };
+
+  const handleHLineChange = (index, value) => {
+    const updated = [...hLines];
+    updated[index] = parseFloat(value) || 0;
+    setHLines(updated);
   };
 
   const trimCanvasEdges = (sourceCanvas) => {
@@ -110,16 +133,6 @@ function App() {
     masterCtx.imageSmoothingQuality = 'high';
     masterCtx.drawImage(img, 0, 0, masterCanvas.width, masterCanvas.height);
     
-    // Calculate the bounding box based on user's visual adjustments
-    const startX = (offsetX / 100) * masterCanvas.width;
-    const startY = (offsetY / 100) * masterCanvas.height;
-    const totalW = (gridWidth / 100) * masterCanvas.width;
-    const totalH = (gridHeight / 100) * masterCanvas.height;
-
-    // Calculate individual cells within that specific bounding box
-    const cellWidth = totalW / cols;
-    const cellHeight = totalH / rows;
-    
     let processedCount = 0;
     const totalStickers = rows * cols;
 
@@ -128,6 +141,17 @@ function App() {
         processedCount++;
         setProgress(`Slicing sticker ${processedCount} of ${totalStickers}...`);
 
+        // Calculate the slice based on the exact user-nudged lines
+        const startX = (vLines[c] / 100) * masterCanvas.width;
+        const endX = (vLines[c+1] / 100) * masterCanvas.width;
+        const startY = (hLines[r] / 100) * masterCanvas.height;
+        const endY = (hLines[r+1] / 100) * masterCanvas.height;
+
+        const cellWidth = endX - startX;
+        const cellHeight = endY - startY;
+        
+        if (cellWidth <= 0 || cellHeight <= 0) continue; // Safety check
+
         const sliceCanvas = document.createElement('canvas');
         sliceCanvas.width = cellWidth;
         sliceCanvas.height = cellHeight;
@@ -135,7 +159,7 @@ function App() {
         
         sliceCtx.drawImage(
           masterCanvas,
-          startX + (c * cellWidth), startY + (r * cellHeight), cellWidth, cellHeight,
+          startX, startY, cellWidth, cellHeight,
           0, 0, cellWidth, cellHeight
         );
 
@@ -174,46 +198,50 @@ function App() {
           
           {/* Controls Panel */}
           <div style={{ 
-            display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '20px', 
+            display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '30px', 
             padding: '15px', backgroundColor: '#f0f0f0', borderRadius: '8px', marginBottom: '20px',
-            maxWidth: '800px'
+            maxWidth: '1000px', width: '100%'
           }}>
             
-            {/* Grid Layout */}
+            {/* Grid Dimensions */}
             <div style={{ borderRight: '2px solid #ccc', paddingRight: '20px' }}>
-              <h4>Grid Layout</h4>
-              <label>Cols: <input type="number" value={cols} onChange={(e) => setCols(Math.max(1, parseInt(e.target.value) || 1))} style={{ width: '40px' }} /></label>
+              <h4>Grid Basics</h4>
+              <label>Cols: <input type="number" value={cols} onChange={(e) => setCols(Math.max(1, parseInt(e.target.value) || 1))} style={{ width: '50px' }} /></label>
               <br/><br/>
-              <label>Rows: <input type="number" value={rows} onChange={(e) => setRows(Math.max(1, parseInt(e.target.value) || 1))} style={{ width: '40px' }} /></label>
+              <label>Rows: <input type="number" value={rows} onChange={(e) => setRows(Math.max(1, parseInt(e.target.value) || 1))} style={{ width: '50px' }} /></label>
+              <br/><br/>
+              <label>Zoom: <input type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} style={{ width: '100px' }}/></label>
             </div>
 
-            {/* Position Adjustments */}
-            <div style={{ borderRight: '2px solid #ccc', paddingRight: '20px' }}>
-              <h4>Grid Position</h4>
-              <label>X Offset: <input type="range" min="0" max="100" step="0.1" value={offsetX} onChange={(e) => setOffsetX(parseFloat(e.target.value))} /></label>
-              <br/><br/>
-              <label>Y Offset: <input type="range" min="0" max="100" step="0.1" value={offsetY} onChange={(e) => setOffsetY(parseFloat(e.target.value))} /></label>
+            {/* Nudge Vertical Lines */}
+            <div style={{ borderRight: '2px solid #ccc', paddingRight: '20px', maxHeight: '150px', overflowY: 'auto' }}>
+              <h4 style={{ marginTop: 0 }}>Nudge Vertical Lines (Left to Right)</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                {vLines.map((val, i) => (
+                  <div key={`v-input-${i}`}>
+                    Line {i + 1}: <input type="number" step="0.1" value={val} onChange={(e) => handleVLineChange(i, e.target.value)} style={{ width: '60px' }} /> %
+                  </div>
+                ))}
+              </div>
             </div>
 
-            {/* Size Adjustments */}
-            <div style={{ borderRight: '2px solid #ccc', paddingRight: '20px' }}>
-              <h4>Grid Size</h4>
-              <label>Width: <input type="range" min="10" max="100" step="0.1" value={gridWidth} onChange={(e) => setGridWidth(parseFloat(e.target.value))} /></label>
-              <br/><br/>
-              <label>Height: <input type="range" min="10" max="100" step="0.1" value={gridHeight} onChange={(e) => setGridHeight(parseFloat(e.target.value))} /></label>
-            </div>
-
-            {/* Zoom Control */}
-            <div>
-              <h4>Preview Zoom</h4>
-              <label>Zoom: <input type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} /></label>
+            {/* Nudge Horizontal Lines */}
+            <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+              <h4 style={{ marginTop: 0 }}>Nudge Horizontal Lines (Top to Bottom)</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                {hLines.map((val, i) => (
+                  <div key={`h-input-${i}`}>
+                    Line {i + 1}: <input type="number" step="0.1" value={val} onChange={(e) => handleHLineChange(i, e.target.value)} style={{ width: '60px' }} /> %
+                  </div>
+                ))}
+              </div>
             </div>
 
           </div>
 
           {/* Interactive Preview Window */}
           <div style={{
-            width: '100%', maxWidth: '900px', height: '500px', 
+            width: '100%', maxWidth: '1000px', height: '600px', 
             overflow: 'auto', border: '2px solid #333', marginBottom: '20px',
             backgroundColor: '#e9ecef', position: 'relative'
           }}>
@@ -224,35 +252,31 @@ function App() {
               position: 'relative'
             }}>
               
-              {/* Background Image */}
               <img ref={imgRef} src={imageSrc} alt="Preview" style={{ display: 'block', maxWidth: '100%' }} />
               
-              {/* Red Stitching Grid Overlay */}
+              {/* Individual Red Cut Lines */}
               <div style={{
-                position: 'absolute',
-                top: `${offsetY}%`, left: `${offsetX}%`,
-                width: `${gridWidth}%`, height: `${gridHeight}%`,
-                pointerEvents: 'none' // Ensures you can scroll without catching the lines
+                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none'
               }}>
-                {/* Draw Vertical Cut Lines */}
-                {Array.from({ length: cols + 1 }).map((_, i) => (
-                  <div key={`v-${i}`} style={{
+                {/* Vertical Lines */}
+                {vLines.map((pos, i) => (
+                  <div key={`v-line-${i}`} style={{
                     position: 'absolute',
-                    left: `${(i / cols) * 100}%`,
+                    left: `${pos}%`,
                     top: 0, bottom: 0,
                     borderLeft: '2px dashed red',
-                    transform: 'translateX(-1px)' // Centers the dashed line
+                    transform: 'translateX(-1px)'
                   }} />
                 ))}
 
-                {/* Draw Horizontal Cut Lines */}
-                {Array.from({ length: rows + 1 }).map((_, i) => (
-                  <div key={`h-${i}`} style={{
+                {/* Horizontal Lines */}
+                {hLines.map((pos, i) => (
+                  <div key={`h-line-${i}`} style={{
                     position: 'absolute',
-                    top: `${(i / rows) * 100}%`,
+                    top: `${pos}%`,
                     left: 0, right: 0,
                     borderTop: '2px dashed red',
-                    transform: 'translateY(-1px)' // Centers the dashed line
+                    transform: 'translateY(-1px)'
                   }} />
                 ))}
               </div>
@@ -266,7 +290,8 @@ function App() {
             style={{ 
               padding: '12px 24px', fontSize: '16px', 
               backgroundColor: isProcessing ? '#cccccc' : '#007bff', 
-              color: 'white', border: 'none', borderRadius: '4px', cursor: isProcessing ? 'not-allowed' : 'pointer'
+              color: 'white', border: 'none', borderRadius: '4px', cursor: isProcessing ? 'not-allowed' : 'pointer',
+              marginBottom: '40px'
             }}
           >
             {isProcessing ? 'Processing...' : 'Slice Based on Red Gridlines'}
