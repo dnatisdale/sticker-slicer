@@ -42,9 +42,9 @@ function App() {
   // --- PWA Install Listener ---
   useEffect(() => {
     const handleBeforeInstallPrompt = (e) => {
-      e.preventDefault(); // Prevent the default browser mini-infobar
-      setDeferredPrompt(e); // Stash the event so it can be triggered later
-      setIsInstallable(true); // Show the install button
+      e.preventDefault(); 
+      setDeferredPrompt(e); 
+      setIsInstallable(true); 
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -57,25 +57,50 @@ function App() {
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
     
-    deferredPrompt.prompt(); // Show the browser's install prompt
+    deferredPrompt.prompt(); 
     
     const { outcome } = await deferredPrompt.userChoice;
     if (outcome === 'accepted') {
-      setIsInstallable(false); // Hide the button once installed
+      setIsInstallable(false); 
     }
     setDeferredPrompt(null);
   };
 
+  // --- Input Fixes for Empty Strings ---
   const handleColsChange = (e) => {
-    const newCols = Math.max(1, parseInt(e.target.value) || 1);
-    setCols(newCols);
-    setVLines(generateLines(newCols)); 
+    const val = e.target.value;
+    if (val === '') {
+      setCols('');
+    } else {
+      const newCols = parseInt(val, 10);
+      setCols(newCols);
+      if (newCols >= 1) setVLines(generateLines(newCols));
+    }
+  };
+
+  const handleColsBlur = () => {
+    if (cols === '' || cols < 1) {
+      setCols(1);
+      setVLines(generateLines(1));
+    }
   };
 
   const handleRowsChange = (e) => {
-    const newRows = Math.max(1, parseInt(e.target.value) || 1);
-    setRows(newRows);
-    setHLines(generateLines(newRows)); 
+    const val = e.target.value;
+    if (val === '') {
+      setRows('');
+    } else {
+      const newRows = parseInt(val, 10);
+      setRows(newRows);
+      if (newRows >= 1) setHLines(generateLines(newRows));
+    }
+  };
+
+  const handleRowsBlur = () => {
+    if (rows === '' || rows < 1) {
+      setRows(1);
+      setHLines(generateLines(1));
+    }
   };
 
   const handleImageUpload = (e) => {
@@ -88,26 +113,30 @@ function App() {
     }
   };
 
-  // --- Drag and Drop Logic ---
+  // --- Drag and Drop Logic (Mouse & Touch) ---
   const handleMouseDown = (e, type, index) => {
     e.preventDefault(); 
     setDraggingLine({ type, index });
   };
 
+  const handleTouchStart = (e, type, index) => {
+    setDraggingLine({ type, index });
+  };
+
   useEffect(() => {
-    const handleMouseMove = (e) => {
+    const handleMove = (clientX, clientY) => {
       if (!draggingLine || !containerRef.current) return;
       
       const rect = containerRef.current.getBoundingClientRect();
 
       if (draggingLine.type === 'v') {
-        let pct = ((e.clientX - rect.left) / rect.width) * 100;
+        let pct = ((clientX - rect.left) / rect.width) * 100;
         pct = Math.max(0, Math.min(100, pct)); 
         const updated = [...vLines];
         updated[draggingLine.index] = pct;
         setVLines(updated);
       } else if (draggingLine.type === 'h') {
-        let pct = ((e.clientY - rect.top) / rect.height) * 100;
+        let pct = ((clientY - rect.top) / rect.height) * 100;
         pct = Math.max(0, Math.min(100, pct)); 
         const updated = [...hLines];
         updated[draggingLine.index] = pct;
@@ -115,18 +144,28 @@ function App() {
       }
     };
 
-    const handleMouseUp = () => {
-      setDraggingLine(null);
+    const handleMouseMove = (e) => handleMove(e.clientX, e.clientY);
+    
+    const handleTouchMove = (e) => {
+      if (e.cancelable) e.preventDefault(); // Stop mobile screen scrolling while dragging
+      handleMove(e.touches[0].clientX, e.touches[0].clientY);
     };
+
+    const handleMouseUp = () => setDraggingLine(null);
+    const handleTouchEnd = () => setDraggingLine(null);
 
     if (draggingLine) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('touchmove', handleTouchMove, { passive: false });
+      window.addEventListener('touchend', handleTouchEnd);
     }
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
     };
   }, [draggingLine, vLines, hLines]);
 
@@ -325,8 +364,8 @@ function App() {
             display: 'flex', justifyContent: 'center', gap: '30px', 
             padding: '15px', backgroundColor: '#f0f0f0', borderRadius: '8px', marginBottom: '20px',
           }}>
-            <label><b>Columns:</b> <input type="number" value={cols} onChange={handleColsChange} style={{ width: '50px' }} /></label>
-            <label><b>Rows:</b> <input type="number" value={rows} onChange={handleRowsChange} style={{ width: '50px' }} /></label>
+            <label><b>Columns:</b> <input type="number" value={cols} onChange={handleColsChange} onBlur={handleColsBlur} style={{ width: '50px' }} /></label>
+            <label><b>Rows:</b> <input type="number" value={rows} onChange={handleRowsChange} onBlur={handleRowsBlur} style={{ width: '50px' }} /></label>
             <label><b>Zoom:</b> <input type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} style={{ width: '100px' }}/></label>
           </div>
 
@@ -352,10 +391,11 @@ function App() {
                 <div 
                   key={`v-line-${i}`} 
                   onMouseDown={(e) => handleMouseDown(e, 'v', i)}
+                  onTouchStart={(e) => handleTouchStart(e, 'v', i)}
                   style={{
                     position: 'absolute', left: `calc(${pos}% - 7px)`, top: 0, bottom: 0,
                     width: '14px', cursor: 'col-resize', zIndex: 10,
-                    display: 'flex', justifyContent: 'center'
+                    display: 'flex', justifyContent: 'center', touchAction: 'none'
                   }} 
                 >
                   <div style={{ width: '4px', height: '100%', borderLeft: '4px dashed rgba(255, 0, 0, 0.8)' }} />
@@ -366,10 +406,11 @@ function App() {
                 <div 
                   key={`h-line-${i}`} 
                   onMouseDown={(e) => handleMouseDown(e, 'h', i)}
+                  onTouchStart={(e) => handleTouchStart(e, 'h', i)}
                   style={{
                     position: 'absolute', top: `calc(${pos}% - 7px)`, left: 0, right: 0,
                     height: '14px', cursor: 'row-resize', zIndex: 10,
-                    display: 'flex', alignItems: 'center'
+                    display: 'flex', alignItems: 'center', touchAction: 'none'
                   }} 
                 >
                   <div style={{ height: '4px', width: '100%', borderTop: '4px dashed rgba(255, 0, 0, 0.8)' }} />
