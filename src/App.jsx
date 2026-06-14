@@ -1,7 +1,16 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import './App.css';
+
+// Helper function to calculate perfectly spaced lines
+const generateLines = (count) => {
+  const lines = [];
+  for(let i = 0; i <= count; i++) {
+    lines.push((i / count) * 100);
+  }
+  return lines;
+};
 
 function App() {
   const [imageSrc, setImageSrc] = useState(null);
@@ -12,32 +21,28 @@ function App() {
   const [cols, setCols] = useState(6);
   const [rows, setRows] = useState(5);
   
-  // Arrays holding the percentage positions (0-100) of each individual cut line
-  const [vLines, setVLines] = useState([]);
-  const [hLines, setHLines] = useState([]);
+  // Initialize the lines perfectly the first time the app loads
+  const [vLines, setVLines] = useState(generateLines(6));
+  const [hLines, setHLines] = useState(generateLines(5));
   
   const [zoom, setZoom] = useState(1);
   
   const imgRef = useRef(null);
   const MASTER_SCALE = 3; 
 
-  // Whenever columns change, reset the vertical lines to be evenly spaced
-  useEffect(() => {
-    const newV = [];
-    for(let i = 0; i <= cols; i++) {
-      newV.push((i / cols) * 100);
-    }
-    setVLines(newV);
-  }, [cols]);
+  // Handle when the user changes the number of columns
+  const handleColsChange = (e) => {
+    const newCols = Math.max(1, parseInt(e.target.value) || 1);
+    setCols(newCols);
+    setVLines(generateLines(newCols)); // Update the vertical lines immediately!
+  };
 
-  // Whenever rows change, reset the horizontal lines to be evenly spaced
-  useEffect(() => {
-    const newH = [];
-    for(let i = 0; i <= rows; i++) {
-      newH.push((i / rows) * 100);
-    }
-    setHLines(newH);
-  }, [rows]);
+  // Handle when the user changes the number of rows
+  const handleRowsChange = (e) => {
+    const newRows = Math.max(1, parseInt(e.target.value) || 1);
+    setRows(newRows);
+    setHLines(generateLines(newRows)); // Update the horizontal lines immediately!
+  };
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -141,7 +146,6 @@ function App() {
         processedCount++;
         setProgress(`Slicing sticker ${processedCount} of ${totalStickers}...`);
 
-        // Calculate the slice based on the exact user-nudged lines
         const startX = (vLines[c] / 100) * masterCanvas.width;
         const endX = (vLines[c+1] / 100) * masterCanvas.width;
         const startY = (hLines[r] / 100) * masterCanvas.height;
@@ -150,7 +154,7 @@ function App() {
         const cellWidth = endX - startX;
         const cellHeight = endY - startY;
         
-        if (cellWidth <= 0 || cellHeight <= 0) continue; // Safety check
+        if (cellWidth <= 0 || cellHeight <= 0) continue; 
 
         const sliceCanvas = document.createElement('canvas');
         sliceCanvas.width = cellWidth;
@@ -206,16 +210,16 @@ function App() {
             {/* Grid Dimensions */}
             <div style={{ borderRight: '2px solid #ccc', paddingRight: '20px' }}>
               <h4>Grid Basics</h4>
-              <label>Cols: <input type="number" value={cols} onChange={(e) => setCols(Math.max(1, parseInt(e.target.value) || 1))} style={{ width: '50px' }} /></label>
+              <label>Cols: <input type="number" value={cols} onChange={handleColsChange} style={{ width: '50px' }} /></label>
               <br/><br/>
-              <label>Rows: <input type="number" value={rows} onChange={(e) => setRows(Math.max(1, parseInt(e.target.value) || 1))} style={{ width: '50px' }} /></label>
+              <label>Rows: <input type="number" value={rows} onChange={handleRowsChange} style={{ width: '50px' }} /></label>
               <br/><br/>
               <label>Zoom: <input type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} style={{ width: '100px' }}/></label>
             </div>
 
             {/* Nudge Vertical Lines */}
             <div style={{ borderRight: '2px solid #ccc', paddingRight: '20px', maxHeight: '150px', overflowY: 'auto' }}>
-              <h4 style={{ marginTop: 0 }}>Nudge Vertical Lines (Left to Right)</h4>
+              <h4 style={{ marginTop: 0 }}>Nudge Vertical Lines</h4>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 {vLines.map((val, i) => (
                   <div key={`v-input-${i}`}>
@@ -227,7 +231,7 @@ function App() {
 
             {/* Nudge Horizontal Lines */}
             <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
-              <h4 style={{ marginTop: 0 }}>Nudge Horizontal Lines (Top to Bottom)</h4>
+              <h4 style={{ marginTop: 0 }}>Nudge Horizontal Lines</h4>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 {hLines.map((val, i) => (
                   <div key={`h-input-${i}`}>
