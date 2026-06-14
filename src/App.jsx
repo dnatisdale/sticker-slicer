@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import './App.css';
 
-const APP_VERSION = "2026-06-14_1453";
+const APP_VERSION = "2026-06-14_1621";
 
 const generateLines = (count) => {
   const lines = [];
@@ -25,7 +25,7 @@ function App() {
   const [hLines, setHLines] = useState(generateLines(5));
   
   const [zoom, setZoom] = useState(1);
-  const [draggingLine, setDraggingLine] = useState(null); // Tracks which line is being dragged
+  const [draggingLine, setDraggingLine] = useState(null); 
   
   const imgRef = useRef(null);
   const containerRef = useRef(null);
@@ -55,7 +55,7 @@ function App() {
 
   // --- Drag and Drop Logic ---
   const handleMouseDown = (e, type, index) => {
-    e.preventDefault(); // Prevents the browser from trying to drag the image itself
+    e.preventDefault(); 
     setDraggingLine({ type, index });
   };
 
@@ -67,13 +67,13 @@ function App() {
 
       if (draggingLine.type === 'v') {
         let pct = ((e.clientX - rect.left) / rect.width) * 100;
-        pct = Math.max(0, Math.min(100, pct)); // Keep inside bounds
+        pct = Math.max(0, Math.min(100, pct)); 
         const updated = [...vLines];
         updated[draggingLine.index] = pct;
         setVLines(updated);
       } else if (draggingLine.type === 'h') {
         let pct = ((e.clientY - rect.top) / rect.height) * 100;
-        pct = Math.max(0, Math.min(100, pct)); // Keep inside bounds
+        pct = Math.max(0, Math.min(100, pct)); 
         const updated = [...hLines];
         updated[draggingLine.index] = pct;
         setHLines(updated);
@@ -84,7 +84,6 @@ function App() {
       setDraggingLine(null);
     };
 
-    // Attach listeners to window so dragging works even if the mouse leaves the image area
     if (draggingLine) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
@@ -154,7 +153,7 @@ function App() {
     if (!imgRef.current) return;
     
     setIsProcessing(true);
-    setProgress('Upscaling and slicing image...');
+    setProgress('Upscaling, sizing, and slicing image...');
     
     const zip = new JSZip();
     const img = imgRef.current;
@@ -175,7 +174,7 @@ function App() {
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         processedCount++;
-        setProgress(`Slicing sticker ${processedCount} of ${totalStickers}...`);
+        setProgress(`Slicing & resizing sticker ${processedCount} of ${totalStickers}...`);
 
         const startX = (vLines[c] / 100) * masterCanvas.width;
         const endX = (vLines[c+1] / 100) * masterCanvas.width;
@@ -205,8 +204,30 @@ function App() {
           const colNum = String(c + 1).padStart(2, '0');
           const fileName = `r${rowNum}_c${colNum}_${timestamp}.png`;
           
-          const blob = await new Promise(resolve => croppedCanvas.toBlob(resolve, 'image/png'));
-          zip.file(fileName, blob);
+          // Define our three target sizes
+          const sizes = [
+            { name: 'Large', scale: 1.0 },
+            { name: 'Medium', scale: 0.5 },
+            { name: 'Small', scale: 0.25 }
+          ];
+
+          // Generate a version for each size and add to the matching ZIP folder
+          for (const size of sizes) {
+            const targetWidth = Math.max(1, croppedCanvas.width * size.scale);
+            const targetHeight = Math.max(1, croppedCanvas.height * size.scale);
+            
+            const resizedCanvas = document.createElement('canvas');
+            resizedCanvas.width = targetWidth;
+            resizedCanvas.height = targetHeight;
+            const ctx = resizedCanvas.getContext('2d');
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(croppedCanvas, 0, 0, targetWidth, targetHeight);
+
+            const blob = await new Promise(resolve => resizedCanvas.toBlob(resolve, 'image/png'));
+            // Create a folder for the size and put the file inside
+            zip.folder(size.name).file(fileName, blob);
+          }
         }
       }
     }
@@ -254,7 +275,7 @@ function App() {
                 transformOrigin: 'top left',
                 display: 'inline-block',
                 position: 'relative',
-                userSelect: 'none' // Prevents text highlighting while dragging
+                userSelect: 'none' 
               }}
             >
               <img ref={imgRef} src={imageSrc} alt="Preview" style={{ display: 'block', maxWidth: '100%', pointerEvents: 'none' }} />
