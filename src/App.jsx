@@ -3,6 +3,9 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import './App.css';
 
+// Update this timestamp whenever you make a new commit!
+const APP_VERSION = "2026-06-14_1212";
+
 const generateLines = (count) => {
   const lines = [];
   for(let i = 0; i <= count; i++) {
@@ -292,6 +295,11 @@ function App() {
           {isProcessing && <p style={{ marginTop: '15px', fontWeight: 'bold', color: '#0056b3' }}>{progress}</p>}
         </div>
       )}
+      
+      {/* Dynamic Version Display */}
+      <div style={{ marginTop: '40px', fontSize: '12px', color: '#888' }}>
+        Version: {APP_VERSION}
+      </div>
     </div>
   );
 }
