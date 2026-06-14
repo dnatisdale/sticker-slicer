@@ -148,7 +148,7 @@ function App() {
       
       <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f0f0f0', borderRadius: '8px', display: 'inline-block' }}>
         <div style={{ marginBottom: '10px' }}>
-          <label style={{ marginRight: '10px', fontWeight: 'bold' }}>Grid Columns:</label>
+          <label style={{ marginRight: '10px', fontWeight: 'bold' }}>Columns:</label>
           <input 
             type="number" 
             value={cols} 
@@ -156,7 +156,7 @@ function App() {
             style={{ width: '60px', padding: '5px' }}
           />
           
-          <label style={{ marginLeft: '20px', marginRight: '10px', fontWeight: 'bold' }}>Grid Rows:</label>
+          <label style={{ marginLeft: '20px', marginRight: '10px', fontWeight: 'bold' }}>Rows:</label>
           <input 
             type="number" 
             value={rows} 
