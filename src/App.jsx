@@ -3,7 +3,9 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import './App.css';
 
-// Helper function to calculate perfectly spaced lines
+// Update this timestamp whenever you make a new commit!
+const APP_VERSION = "2026-06-14_1212";
+
 const generateLines = (count) => {
   const lines = [];
   for(let i = 0; i <= count; i++) {
@@ -17,11 +19,9 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState('');
   
-  // Grid Setup
   const [cols, setCols] = useState(6);
   const [rows, setRows] = useState(5);
   
-  // Initialize the lines perfectly the first time the app loads
   const [vLines, setVLines] = useState(generateLines(6));
   const [hLines, setHLines] = useState(generateLines(5));
   
@@ -30,18 +30,16 @@ function App() {
   const imgRef = useRef(null);
   const MASTER_SCALE = 3; 
 
-  // Handle when the user changes the number of columns
   const handleColsChange = (e) => {
     const newCols = Math.max(1, parseInt(e.target.value) || 1);
     setCols(newCols);
-    setVLines(generateLines(newCols)); // Update the vertical lines immediately!
+    setVLines(generateLines(newCols)); 
   };
 
-  // Handle when the user changes the number of rows
   const handleRowsChange = (e) => {
     const newRows = Math.max(1, parseInt(e.target.value) || 1);
     setRows(newRows);
-    setHLines(generateLines(newRows)); // Update the horizontal lines immediately!
+    setHLines(generateLines(newRows)); 
   };
 
   const handleImageUpload = (e) => {
@@ -192,7 +190,6 @@ function App() {
     <div className="App" style={{ textAlign: 'center', padding: '20px', fontFamily: 'sans-serif' }}>
       <h1>Sticker Slicer PWA</h1>
       
-      {/* File Upload */}
       <div style={{ marginBottom: '20px' }}>
         <input type="file" accept="image/png, image/jpeg" onChange={handleImageUpload} />
       </div>
@@ -200,14 +197,12 @@ function App() {
       {imageSrc && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           
-          {/* Controls Panel */}
           <div style={{ 
             display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '30px', 
             padding: '15px', backgroundColor: '#f0f0f0', borderRadius: '8px', marginBottom: '20px',
             maxWidth: '1000px', width: '100%'
           }}>
             
-            {/* Grid Dimensions */}
             <div style={{ borderRight: '2px solid #ccc', paddingRight: '20px' }}>
               <h4>Grid Basics</h4>
               <label>Cols: <input type="number" value={cols} onChange={handleColsChange} style={{ width: '50px' }} /></label>
@@ -217,25 +212,33 @@ function App() {
               <label>Zoom: <input type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} style={{ width: '100px' }}/></label>
             </div>
 
-            {/* Nudge Vertical Lines */}
-            <div style={{ borderRight: '2px solid #ccc', paddingRight: '20px', maxHeight: '150px', overflowY: 'auto' }}>
+            <div style={{ borderRight: '2px solid #ccc', paddingRight: '20px', maxHeight: '200px', overflowY: 'auto', textAlign: 'left' }}>
               <h4 style={{ marginTop: 0 }}>Nudge Vertical Lines</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {vLines.map((val, i) => (
-                  <div key={`v-input-${i}`}>
-                    Line {i + 1}: <input type="number" step="0.1" value={val} onChange={(e) => handleVLineChange(i, e.target.value)} style={{ width: '60px' }} /> %
+                  <div key={`v-input-${i}`} style={{ display: 'flex', alignItems: 'center' }}>
+                    <span style={{ width: '50px' }}>Line {i + 1}:</span>
+                    <input 
+                      type="range" min="0" max="100" step="0.1" 
+                      value={val} onChange={(e) => handleVLineChange(i, e.target.value)} 
+                      style={{ width: '100px', margin: '0 10px' }} 
+                    />
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Nudge Horizontal Lines */}
-            <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+            <div style={{ maxHeight: '200px', overflowY: 'auto', textAlign: 'left' }}>
               <h4 style={{ marginTop: 0 }}>Nudge Horizontal Lines</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {hLines.map((val, i) => (
-                  <div key={`h-input-${i}`}>
-                    Line {i + 1}: <input type="number" step="0.1" value={val} onChange={(e) => handleHLineChange(i, e.target.value)} style={{ width: '60px' }} /> %
+                  <div key={`h-input-${i}`} style={{ display: 'flex', alignItems: 'center' }}>
+                    <span style={{ width: '50px' }}>Line {i + 1}:</span>
+                    <input 
+                      type="range" min="0" max="100" step="0.1" 
+                      value={val} onChange={(e) => handleHLineChange(i, e.target.value)} 
+                      style={{ width: '100px', margin: '0 10px' }} 
+                    />
                   </div>
                 ))}
               </div>
@@ -243,7 +246,6 @@ function App() {
 
           </div>
 
-          {/* Interactive Preview Window */}
           <div style={{
             width: '100%', maxWidth: '1000px', height: '600px', 
             overflow: 'auto', border: '2px solid #333', marginBottom: '20px',
@@ -258,29 +260,18 @@ function App() {
               
               <img ref={imgRef} src={imageSrc} alt="Preview" style={{ display: 'block', maxWidth: '100%' }} />
               
-              {/* Individual Red Cut Lines */}
-              <div style={{
-                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none'
-              }}>
-                {/* Vertical Lines */}
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
                 {vLines.map((pos, i) => (
                   <div key={`v-line-${i}`} style={{
-                    position: 'absolute',
-                    left: `${pos}%`,
-                    top: 0, bottom: 0,
-                    borderLeft: '2px dashed red',
-                    transform: 'translateX(-1px)'
+                    position: 'absolute', left: `${pos}%`, top: 0, bottom: 0,
+                    borderLeft: '2px dashed red', transform: 'translateX(-1px)'
                   }} />
                 ))}
 
-                {/* Horizontal Lines */}
                 {hLines.map((pos, i) => (
                   <div key={`h-line-${i}`} style={{
-                    position: 'absolute',
-                    top: `${pos}%`,
-                    left: 0, right: 0,
-                    borderTop: '2px dashed red',
-                    transform: 'translateY(-1px)'
+                    position: 'absolute', top: `${pos}%`, left: 0, right: 0,
+                    borderTop: '2px dashed red', transform: 'translateY(-1px)'
                   }} />
                 ))}
               </div>
@@ -304,6 +295,11 @@ function App() {
           {isProcessing && <p style={{ marginTop: '15px', fontWeight: 'bold', color: '#0056b3' }}>{progress}</p>}
         </div>
       )}
+      
+      {/* Dynamic Version Display */}
+      <div style={{ marginTop: '40px', fontSize: '12px', color: '#888' }}>
+        Version: {APP_VERSION}
+      </div>
     </div>
   );
 }
