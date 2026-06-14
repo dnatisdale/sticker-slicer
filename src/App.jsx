@@ -1,10 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import './App.css';
 
-// Update this timestamp whenever you make a new commit!
-const APP_VERSION = "2026-06-14_1212";
+const APP_VERSION = "2026-06-14_1453";
 
 const generateLines = (count) => {
   const lines = [];
@@ -26,8 +25,10 @@ function App() {
   const [hLines, setHLines] = useState(generateLines(5));
   
   const [zoom, setZoom] = useState(1);
+  const [draggingLine, setDraggingLine] = useState(null); // Tracks which line is being dragged
   
   const imgRef = useRef(null);
+  const containerRef = useRef(null);
   const MASTER_SCALE = 3; 
 
   const handleColsChange = (e) => {
@@ -52,18 +53,50 @@ function App() {
     }
   };
 
-  const handleVLineChange = (index, value) => {
-    const updated = [...vLines];
-    updated[index] = parseFloat(value) || 0;
-    setVLines(updated);
+  // --- Drag and Drop Logic ---
+  const handleMouseDown = (e, type, index) => {
+    e.preventDefault(); // Prevents the browser from trying to drag the image itself
+    setDraggingLine({ type, index });
   };
 
-  const handleHLineChange = (index, value) => {
-    const updated = [...hLines];
-    updated[index] = parseFloat(value) || 0;
-    setHLines(updated);
-  };
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!draggingLine || !containerRef.current) return;
+      
+      const rect = containerRef.current.getBoundingClientRect();
 
+      if (draggingLine.type === 'v') {
+        let pct = ((e.clientX - rect.left) / rect.width) * 100;
+        pct = Math.max(0, Math.min(100, pct)); // Keep inside bounds
+        const updated = [...vLines];
+        updated[draggingLine.index] = pct;
+        setVLines(updated);
+      } else if (draggingLine.type === 'h') {
+        let pct = ((e.clientY - rect.top) / rect.height) * 100;
+        pct = Math.max(0, Math.min(100, pct)); // Keep inside bounds
+        const updated = [...hLines];
+        updated[draggingLine.index] = pct;
+        setHLines(updated);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setDraggingLine(null);
+    };
+
+    // Attach listeners to window so dragging works even if the mouse leaves the image area
+    if (draggingLine) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [draggingLine, vLines, hLines]);
+
+  // --- Image Processing ---
   const trimCanvasEdges = (sourceCanvas) => {
     const ctx = sourceCanvas.getContext('2d');
     const imgData = ctx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
@@ -197,85 +230,64 @@ function App() {
       {imageSrc && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           
+          {/* Main Controls */}
           <div style={{ 
-            display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '30px', 
+            display: 'flex', justifyContent: 'center', gap: '30px', 
             padding: '15px', backgroundColor: '#f0f0f0', borderRadius: '8px', marginBottom: '20px',
-            maxWidth: '1000px', width: '100%'
           }}>
-            
-            <div style={{ borderRight: '2px solid #ccc', paddingRight: '20px' }}>
-              <h4>Grid Basics</h4>
-              <label>Cols: <input type="number" value={cols} onChange={handleColsChange} style={{ width: '50px' }} /></label>
-              <br/><br/>
-              <label>Rows: <input type="number" value={rows} onChange={handleRowsChange} style={{ width: '50px' }} /></label>
-              <br/><br/>
-              <label>Zoom: <input type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} style={{ width: '100px' }}/></label>
-            </div>
-
-            <div style={{ borderRight: '2px solid #ccc', paddingRight: '20px', maxHeight: '200px', overflowY: 'auto', textAlign: 'left' }}>
-              <h4 style={{ marginTop: 0 }}>Nudge Vertical Lines</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {vLines.map((val, i) => (
-                  <div key={`v-input-${i}`} style={{ display: 'flex', alignItems: 'center' }}>
-                    <span style={{ width: '50px' }}>Line {i + 1}:</span>
-                    <input 
-                      type="range" min="0" max="100" step="0.1" 
-                      value={val} onChange={(e) => handleVLineChange(i, e.target.value)} 
-                      style={{ width: '100px', margin: '0 10px' }} 
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ maxHeight: '200px', overflowY: 'auto', textAlign: 'left' }}>
-              <h4 style={{ marginTop: 0 }}>Nudge Horizontal Lines</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {hLines.map((val, i) => (
-                  <div key={`h-input-${i}`} style={{ display: 'flex', alignItems: 'center' }}>
-                    <span style={{ width: '50px' }}>Line {i + 1}:</span>
-                    <input 
-                      type="range" min="0" max="100" step="0.1" 
-                      value={val} onChange={(e) => handleHLineChange(i, e.target.value)} 
-                      style={{ width: '100px', margin: '0 10px' }} 
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
+            <label><b>Columns:</b> <input type="number" value={cols} onChange={handleColsChange} style={{ width: '50px' }} /></label>
+            <label><b>Rows:</b> <input type="number" value={rows} onChange={handleRowsChange} style={{ width: '50px' }} /></label>
+            <label><b>Zoom:</b> <input type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} style={{ width: '100px' }}/></label>
           </div>
 
+          {/* Interactive Preview Window */}
           <div style={{
-            width: '100%', maxWidth: '1000px', height: '600px', 
+            width: '100%', maxWidth: '1100px', height: '700px', 
             overflow: 'auto', border: '2px solid #333', marginBottom: '20px',
-            backgroundColor: '#e9ecef', position: 'relative'
+            backgroundColor: '#e9ecef', position: 'relative',
+            cursor: draggingLine ? (draggingLine.type === 'v' ? 'col-resize' : 'row-resize') : 'default'
           }}>
-            <div style={{
-              transform: `scale(${zoom})`,
-              transformOrigin: 'top left',
-              display: 'inline-block',
-              position: 'relative'
-            }}>
+            <div 
+              ref={containerRef}
+              style={{
+                transform: `scale(${zoom})`,
+                transformOrigin: 'top left',
+                display: 'inline-block',
+                position: 'relative',
+                userSelect: 'none' // Prevents text highlighting while dragging
+              }}
+            >
+              <img ref={imgRef} src={imageSrc} alt="Preview" style={{ display: 'block', maxWidth: '100%', pointerEvents: 'none' }} />
               
-              <img ref={imgRef} src={imageSrc} alt="Preview" style={{ display: 'block', maxWidth: '100%' }} />
-              
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
-                {vLines.map((pos, i) => (
-                  <div key={`v-line-${i}`} style={{
-                    position: 'absolute', left: `${pos}%`, top: 0, bottom: 0,
-                    borderLeft: '2px dashed red', transform: 'translateX(-1px)'
-                  }} />
-                ))}
+              {/* Vertical Lines */}
+              {vLines.map((pos, i) => (
+                <div 
+                  key={`v-line-${i}`} 
+                  onMouseDown={(e) => handleMouseDown(e, 'v', i)}
+                  style={{
+                    position: 'absolute', left: `calc(${pos}% - 7px)`, top: 0, bottom: 0,
+                    width: '14px', cursor: 'col-resize', zIndex: 10,
+                    display: 'flex', justifyContent: 'center'
+                  }} 
+                >
+                  <div style={{ width: '4px', height: '100%', borderLeft: '4px dashed rgba(255, 0, 0, 0.8)' }} />
+                </div>
+              ))}
 
-                {hLines.map((pos, i) => (
-                  <div key={`h-line-${i}`} style={{
-                    position: 'absolute', top: `${pos}%`, left: 0, right: 0,
-                    borderTop: '2px dashed red', transform: 'translateY(-1px)'
-                  }} />
-                ))}
-              </div>
-
+              {/* Horizontal Lines */}
+              {hLines.map((pos, i) => (
+                <div 
+                  key={`h-line-${i}`} 
+                  onMouseDown={(e) => handleMouseDown(e, 'h', i)}
+                  style={{
+                    position: 'absolute', top: `calc(${pos}% - 7px)`, left: 0, right: 0,
+                    height: '14px', cursor: 'row-resize', zIndex: 10,
+                    display: 'flex', alignItems: 'center'
+                  }} 
+                >
+                  <div style={{ height: '4px', width: '100%', borderTop: '4px dashed rgba(255, 0, 0, 0.8)' }} />
+                </div>
+              ))}
             </div>
           </div>
           
