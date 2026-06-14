@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import './App.css';
 
-const APP_VERSION = "2026-06-14_1621";
+const APP_VERSION = "2026-06-14_1715";
 
 const generateLines = (count) => {
   const lines = [];
@@ -27,9 +27,44 @@ function App() {
   const [zoom, setZoom] = useState(1);
   const [draggingLine, setDraggingLine] = useState(null); 
   
+  const [includeL, setIncludeL] = useState(true);
+  const [includeM, setIncludeM] = useState(true);
+  const [includeS, setIncludeS] = useState(true);
+
+  // --- PWA Install State ---
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+
   const imgRef = useRef(null);
   const containerRef = useRef(null);
   const MASTER_SCALE = 3; 
+
+  // --- PWA Install Listener ---
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault(); // Prevent the default browser mini-infobar
+      setDeferredPrompt(e); // Stash the event so it can be triggered later
+      setIsInstallable(true); // Show the install button
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    
+    deferredPrompt.prompt(); // Show the browser's install prompt
+    
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsInstallable(false); // Hide the button once installed
+    }
+    setDeferredPrompt(null);
+  };
 
   const handleColsChange = (e) => {
     const newCols = Math.max(1, parseInt(e.target.value) || 1);
@@ -139,14 +174,13 @@ function App() {
     return trimmedCanvas;
   };
 
-  const getTimestamp = () => {
+  const getFormattedDate = () => {
     const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+    const month = months[now.getMonth()];
     const day = String(now.getDate()).padStart(2, '0');
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    return `${year}-${month}-${day}_${hours}${minutes}`;
+    const year = now.getFullYear();
+    return `${month}_${day}_${year}`;
   };
 
   const processStickers = async () => {
@@ -157,7 +191,12 @@ function App() {
     
     const zip = new JSZip();
     const img = imgRef.current;
-    const timestamp = getTimestamp();
+    const dateStamp = getFormattedDate();
+
+    const targetSizes = [];
+    if (includeL) targetSizes.push({ suffix: 'L', scale: 1.0 });
+    if (includeM) targetSizes.push({ suffix: 'M', scale: 0.5 });
+    if (includeS) targetSizes.push({ suffix: 'S', scale: 0.25 });
 
     const masterCanvas = document.createElement('canvas');
     masterCanvas.width = img.naturalWidth * MASTER_SCALE;
@@ -202,17 +241,8 @@ function App() {
         if (croppedCanvas) {
           const rowNum = String(r + 1).padStart(2, '0');
           const colNum = String(c + 1).padStart(2, '0');
-          const fileName = `r${rowNum}_c${colNum}_${timestamp}.png`;
           
-          // Define our three target sizes
-          const sizes = [
-            { name: 'Large', scale: 1.0 },
-            { name: 'Medium', scale: 0.5 },
-            { name: 'Small', scale: 0.25 }
-          ];
-
-          // Generate a version for each size and add to the matching ZIP folder
-          for (const size of sizes) {
+          for (const size of targetSizes) {
             const targetWidth = Math.max(1, croppedCanvas.width * size.scale);
             const targetHeight = Math.max(1, croppedCanvas.height * size.scale);
             
@@ -224,9 +254,10 @@ function App() {
             ctx.imageSmoothingQuality = 'high';
             ctx.drawImage(croppedCanvas, 0, 0, targetWidth, targetHeight);
 
+            const fileName = `r${rowNum}_c${colNum}_${dateStamp}_${size.suffix}.png`;
             const blob = await new Promise(resolve => resizedCanvas.toBlob(resolve, 'image/png'));
-            // Create a folder for the size and put the file inside
-            zip.folder(size.name).file(fileName, blob);
+            
+            zip.file(fileName, blob);
           }
         }
       }
@@ -234,15 +265,54 @@ function App() {
 
     setProgress('Zipping files...');
     const content = await zip.generateAsync({ type: "blob" });
-    saveAs(content, `Stickers_${timestamp}.zip`);
+    const defaultZipName = `Stickers_${dateStamp}.zip`;
+
+    try {
+      if (window.showSaveFilePicker) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: defaultZipName,
+          types: [{
+            description: 'ZIP Archive',
+            accept: { 'application/zip': ['.zip'] },
+          }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(content);
+        await writable.close();
+      } else {
+        saveAs(content, defaultZipName);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error('File save failed:', err);
+        saveAs(content, defaultZipName); 
+      }
+    }
     
     setIsProcessing(false);
     setProgress('');
   };
 
+  const noSizesSelected = !includeL && !includeM && !includeS;
+
   return (
     <div className="App" style={{ textAlign: 'center', padding: '20px', fontFamily: 'sans-serif' }}>
       <h1>Sticker Slicer PWA</h1>
+
+      {/* --- Install Button --- */}
+      {isInstallable && (
+        <button 
+          onClick={handleInstallClick}
+          style={{
+            padding: '10px 20px', fontSize: '16px', fontWeight: 'bold',
+            backgroundColor: '#28a745', color: 'white', border: 'none', 
+            borderRadius: '20px', cursor: 'pointer', marginBottom: '20px',
+            boxShadow: '0px 4px 6px rgba(0,0,0,0.1)'
+          }}
+        >
+          📲 Install App to Device
+        </button>
+      )}
       
       <div style={{ marginBottom: '20px' }}>
         <input type="file" accept="image/png, image/jpeg" onChange={handleImageUpload} />
@@ -251,7 +321,6 @@ function App() {
       {imageSrc && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           
-          {/* Main Controls */}
           <div style={{ 
             display: 'flex', justifyContent: 'center', gap: '30px', 
             padding: '15px', backgroundColor: '#f0f0f0', borderRadius: '8px', marginBottom: '20px',
@@ -261,7 +330,6 @@ function App() {
             <label><b>Zoom:</b> <input type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} style={{ width: '100px' }}/></label>
           </div>
 
-          {/* Interactive Preview Window */}
           <div style={{
             width: '100%', maxWidth: '1100px', height: '700px', 
             overflow: 'auto', border: '2px solid #333', marginBottom: '20px',
@@ -280,7 +348,6 @@ function App() {
             >
               <img ref={imgRef} src={imageSrc} alt="Preview" style={{ display: 'block', maxWidth: '100%', pointerEvents: 'none' }} />
               
-              {/* Vertical Lines */}
               {vLines.map((pos, i) => (
                 <div 
                   key={`v-line-${i}`} 
@@ -295,7 +362,6 @@ function App() {
                 </div>
               ))}
 
-              {/* Horizontal Lines */}
               {hLines.map((pos, i) => (
                 <div 
                   key={`h-line-${i}`} 
@@ -312,24 +378,44 @@ function App() {
             </div>
           </div>
           
+          <div style={{ 
+            marginBottom: '15px', padding: '10px 20px', backgroundColor: '#fff', 
+            border: '1px solid #ccc', borderRadius: '6px', display: 'inline-block' 
+          }}>
+            <h4 style={{ margin: '0 0 10px 0' }}>Select Sizes to Export:</h4>
+            <div style={{ display: 'flex', gap: '20px', justifyContent: 'center' }}>
+              <label style={{ cursor: 'pointer' }}>
+                <input type="checkbox" checked={includeL} onChange={(e) => setIncludeL(e.target.checked)} /> Large (100%)
+              </label>
+              <label style={{ cursor: 'pointer' }}>
+                <input type="checkbox" checked={includeM} onChange={(e) => setIncludeM(e.target.checked)} /> Medium (50%)
+              </label>
+              <label style={{ cursor: 'pointer' }}>
+                <input type="checkbox" checked={includeS} onChange={(e) => setIncludeS(e.target.checked)} /> Small (25%)
+              </label>
+            </div>
+          </div>
+          <br />
+
           <button 
             onClick={processStickers} 
-            disabled={isProcessing}
+            disabled={isProcessing || noSizesSelected}
             style={{ 
               padding: '12px 24px', fontSize: '16px', 
-              backgroundColor: isProcessing ? '#cccccc' : '#007bff', 
-              color: 'white', border: 'none', borderRadius: '4px', cursor: isProcessing ? 'not-allowed' : 'pointer',
-              marginBottom: '40px'
+              backgroundColor: (isProcessing || noSizesSelected) ? '#cccccc' : '#007bff', 
+              color: 'white', border: 'none', borderRadius: '4px', 
+              cursor: (isProcessing || noSizesSelected) ? 'not-allowed' : 'pointer',
+              marginBottom: '10px'
             }}
           >
-            {isProcessing ? 'Processing...' : 'Slice Based on Red Gridlines'}
+            {isProcessing ? 'Processing...' : 'Slice and Save Zip'}
           </button>
           
+          {noSizesSelected && <p style={{ margin: '0', color: 'red', fontSize: '14px' }}>Please select at least one size.</p>}
           {isProcessing && <p style={{ marginTop: '15px', fontWeight: 'bold', color: '#0056b3' }}>{progress}</p>}
         </div>
       )}
       
-      {/* Dynamic Version Display */}
       <div style={{ marginTop: '40px', fontSize: '12px', color: '#888' }}>
         Version: {APP_VERSION}
       </div>
